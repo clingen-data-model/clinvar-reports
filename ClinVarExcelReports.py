@@ -2,7 +2,7 @@ from ExcelReportsFunctions import *
 
 def main():
 
-    inputFile1 = 'organization_summary.txt'
+    inputFile1 = 'ClinVarFullRelease_00-latest.xml.gz'
     inputFile2 = 'submission_summary.txt.gz'
     inputFile3 = 'variation_allele.txt.gz'
     inputFile4 = 'variant_summary.txt.gz'
