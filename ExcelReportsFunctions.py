@@ -854,7 +854,8 @@ def Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, arg):
                     headerSubs.extend(submitters)
 
             else:
-                p2fileVarIDs[varID].update({'EPConflict':'N/A'})
+                if varID in p2fileVarIDs.keys():
+                    p2fileVarIDs[varID].update({'EPConflict':'N/A'})
 
     headerSubs = sorted(set(headerSubs))
     if sub in headerSubs:
