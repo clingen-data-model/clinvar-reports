@@ -19,11 +19,31 @@ The scripts in this project use this file to generate the following files in the
 
 ## How to run these scripts
 All scripts are run as 'python3 *filename.py* *arg*' where arg = 'ZeroStar' or 'OneStar'
-All scripts use FTP to take the most recent ClinVar FTP files as input and to output the files with the date of the FTP submission_summary.txt.gz file appended:
+By default, all scripts use FTP to take the most recent ClinVar FTP files as input and to output the files with the date of the FTP submission_summary.txt.gz file appended:
 
   * ftp.ncbi.nih.gov/pub/clinvar/tab_delimited/submission_summary.txt.gz
   * ftp.ncbi.nih.gov/pub/clinvar/tab_delimited/variation_allele.txt.gz
   * ftp.ncbi.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz
   * ftp.ncbi.nih.gov/pub/clinvar/xml/clinvar_variation/ClinVarVariationRelease_00-latest.xml.gz
 
-These ClinVar files are then removed when finished.
+And by default, these ClinVar files are then removed when finished.
+
+Defaults can be overriden with the following command line options - which will be displayed when run as: python3 ClinVarExcelReports.py --help
+```
+% python3 ClinVarExcelReports.py --help
+usage: ClinVarExcelReports.py [-h] [-d] [-e] [-r] [-u USE_DATE] {ZeroStar,OneStar}
+
+ positional arguments:
+  {ZeroStar,OneStar}
+
+ optional arguments:
+ -h, --help            show this help message and exit
+ -d, --downloadonly    Download the files from clinvar FTP, but dont process them
+ -e, --existingfiles   Don’t download FTP files from clinvar, use existing files
+ -r, --retainfiles     Don’t remove the clinvar FTP files after processing
+ -u USE_DATE, --usedate USE_DATE
+                        Use date for when creating directories in the form MM-DD-YYYY
+```
+
+                        
+ 

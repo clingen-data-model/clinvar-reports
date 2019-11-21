@@ -26,23 +26,32 @@ PLPVUSLBB = 0
 VUSLBB = 0
 today = datetime.datetime.today().strftime('%Y%m%d') #todays date YYYYMMDD
 
+domain = 'ftp.ncbi.nih.gov'
+user = 'anonymous'
+password = 'tsneddon@broadinstitute.org'
+
 
 def get_file(file, path):
     '''This function gets ClinVar files from FTP'''
-
-    domain = 'ftp.ncbi.nih.gov'
-    user = 'anonymous'
-    password = 'tsneddon@broadinstitute.org'
 
     ftp = FTP(domain)
     ftp.login(user, password)
     ftp.cwd(path)
     localfile = open(file, 'wb')
     ftp.retrbinary('RETR ' + file, localfile.write)
+    ftp.quit()
+    localfile.close()
+
+
+def get_file_date(file, path):
+    '''This function gets ClinVar file dates from FTP'''
+
+    ftp = FTP(domain)
+    ftp.login(user, password)
+    ftp.cwd(path)
     raw_date = ftp.sendcmd('MDTM ' + file)
     date = datetime.datetime.strptime(raw_date[4:], "%Y%m%d%H%M%S").strftime("%m-%d-%Y")
     ftp.quit()
-    localfile.close()
 
     return(date)
 
@@ -83,7 +92,7 @@ def print_date(date):
     return(printDate)
 
 
-def create_orgDict(gzfile):
+def create_orgDict(gzfile, retain_files):
     '''This function makes a dictionary from the ClinVar production XML'''
 
     with gzip.open(gzfile) as input:
@@ -101,11 +110,14 @@ def create_orgDict(gzfile):
                 elem.clear()
 
     input.close()
-    os.remove(gzfile)
+
+    if not retain_files:
+        os.remove(gzfile)
+
     return(orgDict)
 
 
-def create_a2vHash(gzfile):
+def create_a2vHash(gzfile, retain_files):
     '''This function makes a dictionary of VarID to AlleleID'''
 
     with gzip.open(gzfile, 'rt') as input:
@@ -126,11 +138,14 @@ def create_a2vHash(gzfile):
                         a2vHash[alleleID] = varID
 
     input.close()
-    os.remove(gzfile)
+
+    if not retain_files:
+        os.remove(gzfile)
+
     return(a2vHash)
 
 
-def create_HGVSHash(gzfile):
+def create_HGVSHash(gzfile, retain_files):
     '''This function makes a hash of metadata for each VarID'''
 
     with gzip.open(gzfile, 'rt') as input:
@@ -153,11 +168,14 @@ def create_HGVSHash(gzfile):
                         HGVSHash[a2vHash[alleleID]] = {'VarType':type, 'HGVSname':HGVSname, 'GeneSym':geneSym,'Phenotype':phenotype,'Guidelines':guidelines}
 
     input.close()
-    os.remove(gzfile)
+
+    if not retain_files:
+        os.remove(gzfile)
+
     return(HGVSHash)
 
 
-def create_scvHash(gzfile, arg):
+def create_scvHash(gzfile, stars, retain_files):
     '''This function makes a hash of each SCV in each VarID'''
 
     global subList
@@ -206,13 +224,13 @@ def create_scvHash(gzfile, arg):
                     if (revStat == 'reviewed by expert panel' or revStat == 'practice guideline') and 'PharmGKB' not in submitter: #-- to exclude PharmGKB records
                         EPHash[varID] = {'ClinSig':clinSig, 'Submitter':submitter, 'DateLastEval':dateLastEval, 'OrgID':orgID}
 
-                    if arg == 'OneStar' and revStat == 'criteria provided, single submitter' and 'clinical testing' in colMeth:
+                    if stars == 'OneStar' and revStat == 'criteria provided, single submitter' and 'clinical testing' in colMeth:
                         if submitter not in subList:
                             subList[submitter] = orgID
                         if varID not in starVars:
                             starVars.append(varID)
 
-                    if arg == 'ZeroStar':
+                    if stars == 'ZeroStar':
                         if revStat == 'no assertion criteria provided':
                             if submitter not in subList:
                                 subList[submitter] = orgID
@@ -227,17 +245,20 @@ def create_scvHash(gzfile, arg):
 
                     scvHash[varID][SCV] = {'ClinSig':clinSig, 'DateLastEval':dateLastEval, 'Submitter':submitter, 'ReviewStatus':revStat, 'ColMeth':colMeth, 'Condition':condition, 'OrgID':orgID}
 
-    if arg == 'ZeroStar':
+    if stars == 'ZeroStar':
         for key in excludeList:
             if key in subList:
                 del subList[key]
 
     input.close()
-    os.remove(gzfile)
+
+    if not retain_files:
+        os.remove(gzfile)
+
     return(scvHash, EPHash, subList, starVars)
 
 
-def create_files(ExcelDir, excelFile, date, statFile, arg):
+def create_files(ExcelDir, excelFile, date, statFile, stars):
     '''This function creates an Excel file for the stats of each submitter'''
 
     dir = ExcelDir
@@ -262,11 +283,11 @@ def create_files(ExcelDir, excelFile, date, statFile, arg):
     worksheetStat.write(6, 0, '6. Lab_vs_EP')
     worksheetStat.write(6, 1, 'ClinVar variants where the submitter clinical significance is discrepant from an Expert Panel (EP) or Practice Guideline.')
 
-    if arg == 'ZeroStar':
+    if stars == 'ZeroStar':
         worksheetStat0 = workbookStat.add_worksheet('0StarStats')
         worksheetStat0.write(0, 0, '0-Star submitter')
 
-    if arg == 'OneStar':
+    if stars == 'OneStar':
         worksheetStat0 = workbookStat.add_worksheet('1StarStats')
         worksheetStat0.write(0, 0, '1-Star submitter')
 
@@ -278,10 +299,10 @@ def create_files(ExcelDir, excelFile, date, statFile, arg):
     worksheetStat0.write(0, 6, '5. IntraLab_discrepancy')
     worksheetStat0.write(0, 7, '6. Lab_vs_EP')
 
-    create_tabs(ExcelDir, excelFile, date, workbookStat, worksheetStat0, arg)
+    create_tabs(ExcelDir, excelFile, date, workbookStat, worksheetStat0, stars)
 
 
-def create_tabs(ExcelDir, excelFile, date, workbookStat, worksheetStat0, arg):
+def create_tabs(ExcelDir, excelFile, date, workbookStat, worksheetStat0, stars):
     '''This function creates an Excel file for each sub in the subList'''
 
     dir = ExcelDir
@@ -317,7 +338,7 @@ def create_tabs(ExcelDir, excelFile, date, workbookStat, worksheetStat0, arg):
         tabList = [create_tab1, create_tab2, create_tab3, create_tab4, create_tab5, create_tab6]
 
         for tab in tabList:
-            counter += tab(sub, workbook, worksheet0, worksheetStat0, count, arg)
+            counter += tab(sub, workbook, worksheet0, worksheetStat0, count, stars)
 
         workbook.close()
 
@@ -327,7 +348,7 @@ def create_tabs(ExcelDir, excelFile, date, workbookStat, worksheetStat0, arg):
     workbookStat.close()
 
 
-def create_tab1(sub, workbook, worksheet0, worksheetStat0, count, arg):
+def create_tab1(sub, workbook, worksheet0, worksheetStat0, count, stars):
     '''This function creates the Tab#1 (Outlier_PLPvsVLBB) in the Excel file'''
 
     worksheet1 = workbook.add_worksheet('1.Outlier_PLPvsVLBB')
@@ -338,7 +359,7 @@ def create_tab1(sub, workbook, worksheet0, worksheetStat0, count, arg):
     headerSubs = []
 
     for varID in scvHash:
-        p2fileVarIDs, headerSubs = outlier_medsig(varID, sub, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = outlier_medsig(varID, sub, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheet1, tab)
 
@@ -352,7 +373,7 @@ def create_tab1(sub, workbook, worksheet0, worksheetStat0, count, arg):
     return(row)
 
 
-def create_tab2(sub, workbook, worksheet0, worksheetStat0, count, arg):
+def create_tab2(sub, workbook, worksheet0, worksheetStat0, count, stars):
     '''This function creates the Tab#2 (Consensus_PLPvsVLBB) in the Excel file'''
 
     worksheet2 = workbook.add_worksheet('2.Consensus_PLPvsVLBB')
@@ -363,7 +384,7 @@ def create_tab2(sub, workbook, worksheet0, worksheetStat0, count, arg):
     headerSubs = []
 
     for varID in scvHash:
-        p2fileVarIDs, headerSubs = consensus_medsig(varID, sub, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = consensus_medsig(varID, sub, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheet2, tab)
 
@@ -377,7 +398,7 @@ def create_tab2(sub, workbook, worksheet0, worksheetStat0, count, arg):
     return(row)
 
 
-def create_tab3(sub, workbook, worksheet0, worksheetStat0, count, arg):
+def create_tab3(sub, workbook, worksheet0, worksheetStat0, count, stars):
     '''This function creates the Tab#3 (NoConsensus_PLPvsVLBB) in the Excel file'''
 
     worksheet3 = workbook.add_worksheet('3.NoConsensus_PLPvsVLBB')
@@ -388,7 +409,7 @@ def create_tab3(sub, workbook, worksheet0, worksheetStat0, count, arg):
     headerSubs = []
 
     for varID in scvHash:
-        p2fileVarIDs, headerSubs = noConsensus_medsig(varID, sub, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = noConsensus_medsig(varID, sub, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheet3, tab)
 
@@ -402,7 +423,7 @@ def create_tab3(sub, workbook, worksheet0, worksheetStat0, count, arg):
     return(row)
 
 
-def create_tab4(sub, workbook, worksheet0, worksheetStat0, count, arg):
+def create_tab4(sub, workbook, worksheet0, worksheetStat0, count, stars):
     '''This function creates the Tab#4 (VUSvsLBB) in the Excel file'''
 
     worksheet4 = workbook.add_worksheet('4.VUSvsLBB')
@@ -413,7 +434,7 @@ def create_tab4(sub, workbook, worksheet0, worksheetStat0, count, arg):
     headerSubs = []
 
     for varID in scvHash:
-        p2fileVarIDs, headerSubs = VUSvsLBB(varID, sub, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = VUSvsLBB(varID, sub, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheet4, tab)
 
@@ -427,7 +448,7 @@ def create_tab4(sub, workbook, worksheet0, worksheetStat0, count, arg):
     return(row)
 
 
-def create_tab5(sub, workbook, worksheet0, worksheetStat0, count, arg):
+def create_tab5(sub, workbook, worksheet0, worksheetStat0, count, stars):
     '''This function creates the Tab#5 (IntraLab_discrepancy) in the Excel file'''
 
     worksheet5 = workbook.add_worksheet('5.IntraLab_discrepancy')
@@ -438,7 +459,7 @@ def create_tab5(sub, workbook, worksheet0, worksheetStat0, count, arg):
     headerSubs = []
 
     for varID in scvHash:
-        p2fileVarIDs, headerSubs = IntraLab_discrepancy(varID, sub, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = IntraLab_discrepancy(varID, sub, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheet5, tab)
 
@@ -452,7 +473,7 @@ def create_tab5(sub, workbook, worksheet0, worksheetStat0, count, arg):
     return(row)
 
 
-def create_tab6(sub, workbook, worksheet0, worksheetStat0, count, arg):
+def create_tab6(sub, workbook, worksheet0, worksheetStat0, count, stars):
     '''This function creates the Tab#6 (Lab_vs_EP) in the Excel file'''
 
     worksheet6 = workbook.add_worksheet('6.Lab_vs_EP')
@@ -463,7 +484,7 @@ def create_tab6(sub, workbook, worksheet0, worksheetStat0, count, arg):
     headerSubs = []
 
     for varID in scvHash:
-        p2fileVarIDs, headerSubs = Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheet6, tab)
 
@@ -477,7 +498,7 @@ def create_tab6(sub, workbook, worksheet0, worksheetStat0, count, arg):
     return(row)
 
 
-def create_distFile(ExcelDir, distFile, date, arg):
+def create_distFile(ExcelDir, distFile, date, stars):
 
     dir = ExcelDir
     sub = ''
@@ -495,7 +516,7 @@ def create_distFile(ExcelDir, distFile, date, arg):
     worksheetDist1 = workbookDist.add_worksheet('Distribution')
 
     for varID in starVars:
-        p2fileVarIDs, headerSubs = get_distVars(varID, headerSubs, p2fileVarIDs, arg)
+        p2fileVarIDs, headerSubs = get_distVars(varID, headerSubs, p2fileVarIDs, stars)
 
     print_header(sub, p2fileVarIDs, headerSubs, worksheetDist1, tab)
 
@@ -503,18 +524,18 @@ def create_distFile(ExcelDir, distFile, date, arg):
         varSubs = get_varSubs(sub, varID)
         row = print_variants(sub, worksheetDist1, row, varID, headerSubs, varSubs, p2fileVarIDs, tab)
 
-    add_stats(worksheetDist0, date, arg, headerSubs)
+    add_stats(worksheetDist0, date, stars, headerSubs)
 
     workbookDist.close()
 
 
-def add_stats(worksheet, date, arg, headerSubs):
+def add_stats(worksheet, date, stars, headerSubs):
 
     totalVars = PLP + VUS + LBB + PLPVUS + PLPLBB + PLPVUSLBB + VUSLBB
 
-    if arg == 'OneStar':
+    if stars == 'OneStar':
         worksheet.write(0, 0, str(totalVars) + ' variants with >= 2 interpretations involving ' + str(len(headerSubs)) + '/' + str(len(subList)) + ' ' + ' OneStar clinical labs as of ' + date)
-    if arg == 'ZeroStar':
+    if stars == 'ZeroStar':
         worksheet.write(0, 0, str(totalVars) + ' variants with >= 2 interpretations involving ' + str(len(headerSubs)) + '/' + str(len(subList)) + ' ' + ' ZeroStar submitters as of ' + date)
     worksheet.write(1, 1, str(round(((PLP + VUS + LBB)/totalVars * 100),2)) + '% concordance:')
     worksheet.write(2, 2, PLP)
@@ -535,10 +556,10 @@ def add_stats(worksheet, date, arg, headerSubs):
     worksheet.write(10, 3, 'VUS vs LB/B')
 
 
-def outlier_medsig(varID, sub, headerSubs, p2fileVarIDs, arg):
+def outlier_medsig(varID, sub, headerSubs, p2fileVarIDs, stars):
     '''This function returns the outlier submitters in a medically significant VarID'''
 
-    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, arg)
+    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, stars)
 
     consensus = ''
 
@@ -593,10 +614,10 @@ def outlier_medsig(varID, sub, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def consensus_medsig(varID, sub, headerSubs, p2fileVarIDs, arg):
+def consensus_medsig(varID, sub, headerSubs, p2fileVarIDs, stars):
     '''This function returns the consensus submitters in a medically significant VarID'''
 
-    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, arg)
+    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, stars)
 
     consensus = ''
 
@@ -651,10 +672,10 @@ def consensus_medsig(varID, sub, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def noConsensus_medsig(varID, sub, headerSubs, p2fileVarIDs, arg):
+def noConsensus_medsig(varID, sub, headerSubs, p2fileVarIDs, stars):
     '''This function returns the submitters with no consensus in a medically significant VarID'''
 
-    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, arg)
+    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, stars)
 
     all = ''
 
@@ -750,10 +771,10 @@ def noConsensus_medsig(varID, sub, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def VUSvsLBB(varID, sub, headerSubs, p2fileVarIDs, arg):
+def VUSvsLBB(varID, sub, headerSubs, p2fileVarIDs, stars):
     '''This function returns the submitters with VUS vs LBB significant VarID'''
 
-    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, arg)
+    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, stars)
 
     consensus = ''
 
@@ -789,10 +810,10 @@ def VUSvsLBB(varID, sub, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def IntraLab_discrepancy(varID, sub, headerSubs, p2fileVarIDs, arg):
+def IntraLab_discrepancy(varID, sub, headerSubs, p2fileVarIDs, stars):
     '''This function returns the submitters with a [P/LP] vs [VUS] vs [LB/B] discrepant clinical significances'''
 
-    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, arg)
+    subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, stars)
 
     duplicate_subs, conflict = get_duplicates(sub, varID)
 
@@ -812,7 +833,7 @@ def IntraLab_discrepancy(varID, sub, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, arg):
+def Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, stars):
     '''This function returns the submitters where the clinical significance is discrepant from an Expert Panel or Practice Guideline'''
 
     clinSig = ''
@@ -845,7 +866,7 @@ def Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, arg):
                 if varID not in p2fileVarIDs.keys():
                     p2fileVarIDs[varID] = {}
 
-                subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, arg)
+                subSignificance, submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_pathCounts(sub, varID, stars)
 
                 p2fileVarIDs[varID] = {'Total':total, 'PLP':plp, 'VUS':vus, 'LBB':lbb, 'Misc':other, 'EP':EPHash[varID]['Submitter'], 'EP_clinSig':EPHash[varID]['ClinSig']}
                 p2fileVarIDs[varID].update({'EPConflict':EPconflict})
@@ -864,7 +885,7 @@ def Outlier_EP(varID, sub, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def get_pathCounts(sub, varID, arg):
+def get_pathCounts(sub, varID, stars):
     '''This function returns the counts of ACMG pathogenicities for each VarID'''
 
     submitters = []
@@ -883,7 +904,7 @@ def get_pathCounts(sub, varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
             if scvHash[varID][SCV]['Submitter'] == sub and current_sub not in unique_subs:
-                if arg == 'OneStar' or (arg == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
+                if stars == 'OneStar' or (stars == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
                     subSignificance.append('PLP')
@@ -898,7 +919,7 @@ def get_pathCounts(sub, varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
             if scvHash[varID][SCV]['Submitter'] == sub and current_sub not in unique_subs:
-                if arg == 'OneStar' or (arg == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
+                if stars == 'OneStar' or (stars == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
                     subSignificance.append('PLP')
@@ -913,7 +934,7 @@ def get_pathCounts(sub, varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
             if scvHash[varID][SCV]['Submitter'] == sub and current_sub not in unique_subs:
-                if arg == 'OneStar' or (arg == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
+                if stars == 'OneStar' or (stars == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
                     subSignificance.append('VLBB')
@@ -928,7 +949,7 @@ def get_pathCounts(sub, varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
             if scvHash[varID][SCV]['Submitter'] == sub and current_sub not in unique_subs:
-                if arg == 'OneStar' or (arg == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
+                if stars == 'OneStar' or (stars == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
                     subSignificance.append('VLBB')
@@ -943,7 +964,7 @@ def get_pathCounts(sub, varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
             if scvHash[varID][SCV]['Submitter'] == sub and current_sub not in unique_subs:
-                if arg == 'OneStar' or (arg == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
+                if stars == 'OneStar' or (stars == 'ZeroStar' and 'no assertion criteria provided' in scvHash[varID][SCV]['ReviewStatus']):
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
                     subSignificance.append('VLBB')
@@ -1007,7 +1028,7 @@ def get_duplicates(sub, varID):
     return(duplicate_subs, conflict)
 
 
-def get_distVars(varID, headerSubs, p2fileVarIDs, arg):
+def get_distVars(varID, headerSubs, p2fileVarIDs, stars):
     '''This function returns the clinical significance(s) of each VarID'''
 
     global PLP
@@ -1020,7 +1041,7 @@ def get_distVars(varID, headerSubs, p2fileVarIDs, arg):
 
     all = []
 
-    submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_counts(varID, arg)
+    submitters, p, lp, plp, vus, lb, b, lbb, vlbb, total, other = get_counts(varID, stars)
 
     if plp + vlbb > 1:
         if varID not in p2fileVarIDs.keys():
@@ -1062,7 +1083,7 @@ def get_distVars(varID, headerSubs, p2fileVarIDs, arg):
     return(p2fileVarIDs, headerSubs)
 
 
-def get_counts(varID, arg):
+def get_counts(varID, stars):
     '''This function returns the counts of ACMG pathogenicities for each VarID'''
 
     submitters = []
@@ -1079,7 +1100,7 @@ def get_counts(varID, arg):
         if scvHash[varID][SCV]['ClinSig'] == 'Pathogenic':
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
-            if (arg == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (arg == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
+            if (stars == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (stars == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
                 if current_sub not in unique_subs:
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
@@ -1089,7 +1110,7 @@ def get_counts(varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
 
-            if (arg == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (arg == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
+            if (stars == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (stars == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
                 if current_sub not in unique_subs:
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
@@ -1099,7 +1120,7 @@ def get_counts(varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
 
-            if (arg == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (arg == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
+            if (stars == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (stars == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
                 if current_sub not in unique_subs:
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
@@ -1109,7 +1130,7 @@ def get_counts(varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
 
-            if (arg == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (arg == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
+            if (stars == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (stars == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
                 if current_sub not in unique_subs:
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
@@ -1119,7 +1140,7 @@ def get_counts(varID, arg):
            #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
 
-            if (arg == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (arg == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
+            if (stars == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (stars == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
                 if current_sub not in unique_subs:
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
@@ -1128,7 +1149,7 @@ def get_counts(varID, arg):
         else:
             #Don't double count (Illumina's) duplicate submissions!!!
             current_sub = scvHash[varID][SCV]['Submitter'] + scvHash[varID][SCV]['ClinSig']
-            if (arg == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (arg == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
+            if (stars == 'OneStar' and scvHash[varID][SCV]['ReviewStatus'] == 'criteria provided, single submitter' and 'clinical testing' in scvHash[varID][SCV]['ColMeth']) or (stars == 'ZeroStar' and scvHash[varID][SCV]['ReviewStatus'] == 'no assertion criteria provided'):
                 if current_sub not in unique_subs:
                     unique_subs.append(current_sub)
                     submitters.append(scvHash[varID][SCV]['Submitter'])
